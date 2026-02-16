@@ -1,0 +1,7 @@
+accelerate==1.1.1
+Pillow==11.1.0
+transformers==4.51.3
+qwen-vl-utils==0.0.8
+fastapi
+uvicorn[standard]
+python-multipart

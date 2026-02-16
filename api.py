@@ -5,7 +5,12 @@ from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 import torch
 import re
 import io
+import time
+import logging
 import uvicorn
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- System Prompt and Coordinate Extraction ---
 SYSTEM_PROMPT = '''
@@ -48,6 +53,7 @@ async def health_check():
 
 @app.post("/process/")
 async def process(instruction: str = Form(...), image_file: UploadFile = File(...)):
+    start_time = time.time()
     # Read and process the uploaded image
     image_bytes = await image_file.read()
     image = Image.open(io.BytesIO(image_bytes))
@@ -94,6 +100,8 @@ async def process(instruction: str = Form(...), image_file: UploadFile = File(..
     pred_x *= scale_x
     pred_y *= scale_y
 
+    elapsed = time.time() - start_time
+    logger.info("request processed in %.3fs | image=%dx%d | instruction=%s | result=(%s, %s)", elapsed, width, height, instruction, pred_x, pred_y)
     return {"x": pred_x, "y": pred_y}
 
 # --- Main block to run the app ---
