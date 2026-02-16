@@ -6,6 +6,7 @@ import torch
 import re
 import io
 import time
+import asyncio
 import logging
 import uvicorn
 
@@ -21,9 +22,11 @@ Output the coordinate pair exactly:
 '''
 SYSTEM_PROMPT = SYSTEM_PROMPT.strip()
 
+COORD_PATTERN = re.compile(r"\((-?\d*\.?\d+),\s*(-?\d*\.?\d+)\)")
+
 def extract_coordinates(raw_string):
     try:
-        matches = re.findall(r"\((-?\d*\.?\d+),\s*(-?\d*\.?\d+)\)", raw_string)
+        matches = COORD_PATTERN.findall(raw_string)
         return [tuple(map(int, match)) for match in matches][0]
     except:
         return 0, 0
@@ -46,6 +49,21 @@ processor = AutoProcessor.from_pretrained(
     min_pixels=3136,
     max_pixels=4096 * 2160
 )
+model = torch.compile(model)
+
+resize_factor = processor.image_processor.patch_size * processor.image_processor.merge_size
+resize_min_pixels = processor.image_processor.min_pixels
+resize_max_pixels = processor.image_processor.max_pixels
+
+MAX_CONCURRENT_REQUESTS = 10
+inference_lock = asyncio.Lock()
+request_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+def run_inference(inputs):
+    inputs = inputs.to(model.device)
+    with torch.inference_mode():
+        output_ids = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False, use_cache=True)
+    return inputs, output_ids
 
 @app.get("/")
 async def health_check():
@@ -53,6 +71,10 @@ async def health_check():
 
 @app.post("/process/")
 async def process(instruction: str = Form(...), image_file: UploadFile = File(...)):
+    async with request_semaphore:
+        return await _process(instruction, image_file)
+
+async def _process(instruction: str, image_file: UploadFile):
     start_time = time.time()
     # Read and process the uploaded image
     image_bytes = await image_file.read()
@@ -63,9 +85,9 @@ async def process(instruction: str = Form(...), image_file: UploadFile = File(..
     resized_height, resized_width = smart_resize(
         image.height,
         image.width,
-        factor=processor.image_processor.patch_size * processor.image_processor.merge_size,
-        min_pixels=processor.image_processor.min_pixels,
-        max_pixels=processor.image_processor.max_pixels,
+        factor=resize_factor,
+        min_pixels=resize_min_pixels,
+        max_pixels=resize_max_pixels,
     )
     resized_image = image.resize((resized_width, resized_height))
     scale_x, scale_y = width / resized_width, height / resized_height
@@ -88,12 +110,13 @@ async def process(instruction: str = Form(...), image_file: UploadFile = File(..
     image_inputs, video_inputs = process_vision_info([system_message, user_message])
     text = processor.apply_chat_template([system_message, user_message], tokenize=False, add_generation_prompt=True)
     inputs = processor(text=[text], images=image_inputs, videos=video_inputs, padding=True, return_tensors="pt")
-    inputs = inputs.to(model.device)
 
-    # Generate prediction
-    output_ids = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False, temperature=1.0, use_cache=True)
+    # Generate prediction (inputs moved to GPU inside the lock)
+    async with inference_lock:
+        inputs, output_ids = await asyncio.to_thread(run_inference, inputs)
     generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, output_ids)]
     output_text = processor.batch_decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0]
+    del inputs, output_ids, generated_ids, image_inputs, video_inputs
 
     # Extract and rescale coordinates
     pred_x, pred_y = extract_coordinates(output_text)
