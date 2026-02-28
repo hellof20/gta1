@@ -6,8 +6,8 @@ from PIL import Image, ImageDraw
 
 # BASE_URL = "https://a15021127204--gta1-inference-inference-serve.modal.run" # MODAL
 BASE_URL = "https://gta1-279432852451.asia-southeast1.run.app" # CLOUD_RUN L4
-BASE_URL = "https://gta1-rtx6000-279432852451.us-central1.run.app" # CLOUD_RUN RTX6000
-
+# BASE_URL = "https://gta1-rtx6000-279432852451.us-central1.run.app" # CLOUD_RUN RTX6000
+# BASE_URL = "http://localhost:8000"
 
 MARKER_RADIUS = 15
 MARKER_COLOR = (255, 0, 0)
