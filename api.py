@@ -1,4 +1,5 @@
 from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.responses import JSONResponse
 from PIL import Image
 from qwen_vl_utils import process_vision_info, smart_resize
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
@@ -8,6 +9,7 @@ import io
 import time
 import asyncio
 import logging
+import traceback
 import uvicorn
 
 logging.basicConfig(level=logging.INFO)
@@ -38,18 +40,31 @@ app = FastAPI()
 model_path = "HelloKKMe/GTA1-7B"
 max_new_tokens = 32
 
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-    model_path,
-    torch_dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
-    device_map="auto"
-)
+try:
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        model_path,
+        torch_dtype=torch.bfloat16,
+        attn_implementation="flash_attention_2",
+        device_map="auto",
+        local_files_only=True,
+    )
+    logger.info("model loaded with flash_attention_2")
+except Exception:
+    logger.warning("flash_attention_2 not available, falling back to sdpa")
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        model_path,
+        torch_dtype=torch.bfloat16,
+        attn_implementation="sdpa",
+        device_map="auto",
+        local_files_only=True,
+    )
 processor = AutoProcessor.from_pretrained(
     model_path,
     min_pixels=3136,
-    max_pixels=4096 * 2160
+    max_pixels=1920 * 1080,
+    local_files_only=True,
 )
-model = torch.compile(model)
+# model = torch.compile(model)
 
 resize_factor = processor.image_processor.patch_size * processor.image_processor.merge_size
 resize_min_pixels = processor.image_processor.min_pixels
@@ -76,56 +91,61 @@ async def process(instruction: str = Form(...), image_file: UploadFile = File(..
 
 async def _process(instruction: str, image_file: UploadFile):
     start_time = time.time()
-    # Read and process the uploaded image
-    image_bytes = await image_file.read()
-    image = Image.open(io.BytesIO(image_bytes))
+    try:
+        # Read and process the uploaded image
+        image_bytes = await image_file.read()
+        image = Image.open(io.BytesIO(image_bytes))
 
-    width, height = image.width, image.height
+        width, height = image.width, image.height
 
-    resized_height, resized_width = smart_resize(
-        image.height,
-        image.width,
-        factor=resize_factor,
-        min_pixels=resize_min_pixels,
-        max_pixels=resize_max_pixels,
-    )
-    resized_image = image.resize((resized_width, resized_height))
-    scale_x, scale_y = width / resized_width, height / resized_height
+        resized_height, resized_width = smart_resize(
+            image.height,
+            image.width,
+            factor=resize_factor,
+            min_pixels=resize_min_pixels,
+            max_pixels=resize_max_pixels,
+        )
+        resized_image = image.resize((resized_width, resized_height))
+        scale_x, scale_y = width / resized_width, height / resized_height
 
-    # Prepare messages for the model
-    system_message = {
-       "role": "system",
-       "content": SYSTEM_PROMPT.format(height=resized_height, width=resized_width)
-    }
+        # Prepare messages for the model
+        system_message = {
+           "role": "system",
+           "content": SYSTEM_PROMPT.format(height=resized_height, width=resized_width)
+        }
 
-    user_message = {
-        "role": "user",
-        "content": [
-            {"type": "image", "image": resized_image},
-            {"type": "text", "text": instruction}
-        ]
-    }
+        user_message = {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": resized_image},
+                {"type": "text", "text": instruction}
+            ]
+        }
 
-    # Tokenize and prepare inputs
-    image_inputs, video_inputs = process_vision_info([system_message, user_message])
-    text = processor.apply_chat_template([system_message, user_message], tokenize=False, add_generation_prompt=True)
-    inputs = processor(text=[text], images=image_inputs, videos=video_inputs, padding=True, return_tensors="pt")
+        # Tokenize and prepare inputs
+        image_inputs, video_inputs = process_vision_info([system_message, user_message])
+        text = processor.apply_chat_template([system_message, user_message], tokenize=False, add_generation_prompt=True)
+        inputs = processor(text=[text], images=image_inputs, videos=video_inputs, padding=True, return_tensors="pt")
 
-    # Generate prediction (inputs moved to GPU inside the lock)
-    async with inference_lock:
-        inputs, output_ids = await asyncio.to_thread(run_inference, inputs)
-    generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, output_ids)]
-    output_text = processor.batch_decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0]
-    del inputs, output_ids, generated_ids, image_inputs, video_inputs
+        # Generate prediction (inputs moved to GPU inside the lock)
+        async with inference_lock:
+            inputs, output_ids = await asyncio.to_thread(run_inference, inputs)
+        generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, output_ids)]
+        output_text = processor.batch_decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0]
+        del inputs, output_ids, generated_ids, image_inputs, video_inputs
 
-    # Extract and rescale coordinates
-    pred_x, pred_y = extract_coordinates(output_text)
-    pred_x *= scale_x
-    pred_y *= scale_y
+        # Extract and rescale coordinates
+        pred_x, pred_y = extract_coordinates(output_text)
+        pred_x *= scale_x
+        pred_y *= scale_y
 
-    elapsed = time.time() - start_time
-    logger.info("request processed in %.3fs | image=%dx%d | instruction=%s | result=(%s, %s)", elapsed, width, height, instruction, pred_x, pred_y)
-    return {"x": pred_x, "y": pred_y}
+        elapsed = time.time() - start_time
+        logger.info("request processed in %.3fs | image=%dx%d | instruction=%s | result=(%s, %s)", elapsed, width, height, instruction, pred_x, pred_y)
+        return {"x": pred_x, "y": pred_y}
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error("inference failed in %.3fs: %s\n%s", elapsed, e, traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 # --- Main block to run the app ---
 if __name__ == "__main__":
