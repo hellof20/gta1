@@ -1,0 +1,28 @@
+steps:
+# Build mai-ui Docker image
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'build',
+    '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/mai-ui:${_VERSION}',
+    '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/mai-ui:latest',
+    '.'
+  ]
+
+# Push image to Artifact Registry
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'push',
+    '--all-tags',
+    '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/mai-ui'
+  ]
+
+substitutions:
+  _VERSION: '0.1'
+  _REGION: 'asia-southeast1'
+  _REPOSITORY: 'myrepo'
+
+options:
+  machineType: 'E2_HIGHCPU_32'
+  diskSizeGb: 100
+
+timeout: '1800s'

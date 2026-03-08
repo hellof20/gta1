@@ -1,0 +1,11 @@
+torch==2.5.0
+torchvision
+accelerate==1.1.1
+Pillow==11.1.0
+transformers==4.57.0
+qwen-vl-utils==0.0.8
+fastapi
+uvicorn[standard]
+python-multipart
+protobuf
+flash_attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.3/flash_attn-2.7.3+cu12torch2.5cxx11abiFALSE-cp310-cp310-linux_x86_64.whl

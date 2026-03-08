@@ -1,7 +1,7 @@
 # 构建镜像和打包到镜像仓库
 gcloud builds submit --project speedy-victory-336109 --config=cloudbuild.yaml --substitutions=_VERSION="0.12"
 
-# 部署到cloud run
+# 部署gta-1到cloud run
 gcloud run deploy gta1 \
   --image asia-southeast1-docker.pkg.dev/speedy-victory-336109/myrepo/gta1:0.12 \
   --region asia-southeast1 \
@@ -19,6 +19,24 @@ gcloud run deploy gta1 \
   --cpu-boost \
   --allow-unauthenticated
 
+
+# 部署mai-ui到cloud run
+gcloud run deploy mai-ui \
+  --image asia-southeast1-docker.pkg.dev/speedy-victory-336109/myrepo/mai-ui:0.1 \
+  --region asia-southeast1 \
+  --platform managed \
+  --gpu 1 \
+  --gpu-type nvidia-l4 \
+  --no-gpu-zonal-redundancy \
+  --cpu 4 \
+  --memory 16Gi \
+  --port 8000 \
+  --min 0 \
+  --max 3 \
+  --timeout 120 \
+  --concurrency 1 \
+  --cpu-boost \
+  --allow-unauthenticated
 
 gcloud beta run deploy gta1-rtx6000 \
   --image asia-southeast1-docker.pkg.dev/speedy-victory-336109/myrepo/gta1:0.12 \
