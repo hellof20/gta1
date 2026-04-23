@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+*.png
+*.jpg
+k8s/
+test_api.py
+download_model.py
+run.sh
+.git/
