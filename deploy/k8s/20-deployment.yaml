@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gta1-vllm
+  namespace: gta1
+  labels:
+    app: gta1-vllm
+spec:
+  # KEDA owns the replica count via the HPA it creates from ScaledObject.
+  # We omit `replicas:` so we don't fight with KEDA on every reconcile.
+  selector:
+    matchLabels:
+      app: gta1-vllm
+  strategy:
+    # 1 GPU per Pod and only 3 GPUs total — surge=0 to avoid blocked rollouts.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: gta1-vllm
+      annotations:
+        # Required to inject the GCS Fuse sidecar.
+        gke-gcsfuse/volumes: "true"
+        # Let the sidecar use as much CPU/memory as it needs (large model files).
+        gke-gcsfuse/cpu-limit: "0"
+        gke-gcsfuse/memory-limit: "0"
+        gke-gcsfuse/ephemeral-storage-limit: "0"
+    spec:
+      serviceAccountName: gta1-vllm
+      terminationGracePeriodSeconds: 60
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-l4
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: vllm
+        # TODO: bump this when you push a new image (cloudbuild _VERSION).
+        image: us-central1-docker.pkg.dev/pwmtest1/myrepo/gta1-vllm:0.2.2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+        env:
+        - name: MODEL_PATH
+          value: /models/GTA1-7B
+        - name: INFLIGHT_LIMIT
+          value: "4"
+        - name: GPU_MEM_UTIL
+          value: "0.85"
+        - name: MAX_MODEL_LEN
+          value: "12288"
+        # vLLM uses /dev/shm for inter-process tensor sharing.
+        - name: VLLM_WORKER_MULTIPROC_METHOD
+          value: spawn
+        resources:
+          requests:
+            cpu: "4"
+            memory: 16Gi
+            nvidia.com/gpu: 1
+          limits:
+            cpu: "8"
+            memory: 24Gi
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: model
+          mountPath: /models
+          readOnly: true
+        - name: dshm
+          mountPath: /dev/shm
+        # Container only takes traffic once vLLM finishes loading the model.
+        readinessProbe:
+          httpGet: { path: /ready, port: http }
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30          # ~5 min budget for cold load from GCS
+        # No liveness probe: a stuck vLLM is rare and a kill mid-batch is worse than
+        # a slow response. Add one only if you observe hangs in practice.
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sleep", "5"]
+        startupProbe:
+          httpGet: { path: /ready, port: http }
+          periodSeconds: 10
+          failureThreshold: 60          # 10 min for very-cold first start
+      volumes:
+      - name: model
+        csi:
+          driver: gcsfuse.csi.storage.gke.io
+          readOnly: true
+          volumeAttributes:
+            bucketName: pwmmodel
+            mountOptions: "implicit-dirs,metadata-cache:ttl-secs:-1"
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 4Gi

@@ -9,9 +9,10 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from PIL import Image, UnidentifiedImageError
+from prometheus_client import REGISTRY, Counter, Gauge, make_asgi_app
 from qwen_vl_utils import smart_resize
 from transformers import AutoProcessor
 from vllm import AsyncEngineArgs, AsyncLLMEngine, SamplingParams
@@ -48,57 +49,117 @@ MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(3840 * 2160)))
 MIN_PIXELS = int(os.environ.get("MIN_PIXELS", "3136"))
 MAX_MODEL_LEN = int(os.environ.get("MAX_MODEL_LEN", "12288"))
 GPU_MEM_UTIL = float(os.environ.get("GPU_MEM_UTIL", "0.85"))
+# Hard cap on concurrent /process requests; above this we 503.
+# Based on our load test, p99 stays acceptable up to ~N=2; cap to N*2 to absorb bursts.
+INFLIGHT_LIMIT = int(os.environ.get("INFLIGHT_LIMIT", "4"))
 ENABLE_PREFIX_CACHE = os.environ.get("ENABLE_PREFIX_CACHE", "1").lower() in ("1", "true", "yes", "on")
 ENABLE_MM_CACHE = os.environ.get("ENABLE_MM_CACHE", "1").lower() in ("1", "true", "yes", "on")
 logger.info("Engine config: max_pixels=%d max_model_len=%d prefix_cache=%s mm_cache=%s",
             MAX_PIXELS, MAX_MODEL_LEN, ENABLE_PREFIX_CACHE, ENABLE_MM_CACHE)
 
-# --- vLLM engine ---
-engine_args = AsyncEngineArgs(
-    model=MODEL_PATH,
-    dtype="bfloat16",
-    max_model_len=MAX_MODEL_LEN,
-    gpu_memory_utilization=GPU_MEM_UTIL,
-    mm_processor_kwargs={"max_pixels": MAX_PIXELS, "min_pixels": MIN_PIXELS},
-    limit_mm_per_prompt={"image": 1},
-    enable_prefix_caching=ENABLE_PREFIX_CACHE,   # cache shared prefix KV across requests
-    mm_processor_cache_gb=(4 if ENABLE_MM_CACHE else 0),  # cache vision encoder outputs
-    enforce_eager=False,                          # enable CUDA graphs for decode
-)
-_t = time.perf_counter()
-engine = AsyncLLMEngine.from_engine_args(engine_args)
-logger.info("STARTUP engine ready in %.2fs", time.perf_counter() - _t)
-
-# Processor only for chat-template formatting (vLLM does its own image processing)
-_t = time.perf_counter()
-processor = AutoProcessor.from_pretrained(
-    MODEL_PATH,
-    min_pixels=MIN_PIXELS,
-    max_pixels=MAX_PIXELS,
-    local_files_only=True,
-)
-RESIZE_FACTOR = processor.image_processor.patch_size * processor.image_processor.merge_size
-logger.info("STARTUP processor ready in %.2fs", time.perf_counter() - _t)
-
+# --- vLLM engine (initialized in lifespan to avoid spawn issues) ---
+engine = None
+processor = None
+RESIZE_FACTOR = None
 SAMPLING = SamplingParams(temperature=0.0, max_tokens=MAX_NEW_TOKENS)
+
+_ready = False
 
 
 @asynccontextmanager
 async def lifespan(app):
+    global engine, processor, RESIZE_FACTOR, _ready
+
+    engine_args = AsyncEngineArgs(
+        model=MODEL_PATH,
+        dtype="bfloat16",
+        max_model_len=MAX_MODEL_LEN,
+        gpu_memory_utilization=GPU_MEM_UTIL,
+        mm_processor_kwargs={"max_pixels": MAX_PIXELS, "min_pixels": MIN_PIXELS},
+        limit_mm_per_prompt={"image": 1},
+        enable_prefix_caching=ENABLE_PREFIX_CACHE,
+        mm_processor_cache_gb=(4 if ENABLE_MM_CACHE else 0),
+        enforce_eager=False,
+    )
+    _t = time.perf_counter()
+    engine = AsyncLLMEngine.from_engine_args(engine_args)
+    logger.info("STARTUP engine ready in %.2fs", time.perf_counter() - _t)
+
+    _t = time.perf_counter()
+    processor = AutoProcessor.from_pretrained(
+        MODEL_PATH,
+        min_pixels=MIN_PIXELS,
+        max_pixels=MAX_PIXELS,
+        local_files_only=True,
+    )
+    RESIZE_FACTOR = processor.image_processor.patch_size * processor.image_processor.merge_size
+    logger.info("STARTUP processor ready in %.2fs", time.perf_counter() - _t)
+
+    _t = time.perf_counter()
+    warmup_img = Image.new("RGB", (224, 224), color=(0, 0, 0))
+    warmup_msgs = [
+        {"role": "system", "content": SYSTEM_PROMPT.format(height=224, width=224)},
+        {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "button"}]},
+    ]
+    warmup_prompt = processor.apply_chat_template(warmup_msgs, tokenize=False, add_generation_prompt=True)
+    async for _ in engine.generate(
+        prompt={"prompt": warmup_prompt, "multi_modal_data": {"image": warmup_img}},
+        sampling_params=SAMPLING,
+        request_id="warmup",
+    ):
+        pass
+    logger.info("STARTUP warmup done in %.2fs", time.perf_counter() - _t)
+
     elapsed = time.perf_counter() - SCRIPT_START
     bar = "=" * 60
     logger.info(bar)
     logger.info("STARTUP COMPLETE — server ready after %.2fs from script start", elapsed)
     logger.info(bar)
+    _ready = True
     yield
 
 
 app = FastAPI(lifespan=lifespan)
 
+INFLIGHT = Gauge("gta1_inflight_requests", "Currently in-flight /process requests")
+REJECTED = Counter("gta1_rejected_requests_total", "Requests rejected due to inflight limit")
+_inflight = 0  # asyncio is single-threaded, no lock needed
+
+
+@app.middleware("http")
+async def limit_inflight(request: Request, call_next):
+    global _inflight
+    if request.url.path != "/process/":
+        return await call_next(request)
+    if _inflight >= INFLIGHT_LIMIT:
+        REJECTED.inc()
+        return JSONResponse(
+            status_code=503,
+            headers={"Retry-After": "2"},
+            content={"error": "overloaded, retry later"},
+        )
+    _inflight += 1
+    INFLIGHT.set(_inflight)
+    try:
+        return await call_next(request)
+    finally:
+        _inflight -= 1
+        INFLIGHT.set(_inflight)
+
+
+app.mount("/metrics", make_asgi_app(REGISTRY))
+
 
 @app.get("/")
 async def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/ready")
+async def ready_check():
+    if not _ready:
+        return JSONResponse(status_code=503, content={"status": "starting"})
+    return {"status": "ready"}
 
 
 @app.post("/process/")

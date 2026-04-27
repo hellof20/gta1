@@ -1,0 +1,13 @@
+# Keep at least 1 Pod available during voluntary disruption (node upgrades,
+# autoscaler removing a node, etc.). Combined with maxReplicaCount=3 this
+# means at most 2 Pods can go down at once.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gta1-vllm
+  namespace: gta1
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gta1-vllm

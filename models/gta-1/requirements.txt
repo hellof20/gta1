@@ -6,3 +6,4 @@ torchvision
 fastapi
 uvicorn[standard]
 python-multipart
+huggingface_hub

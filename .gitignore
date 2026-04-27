@@ -1,7 +1,8 @@
 .DS_Store
 images/
 MAI-UI-main/
-venv/
-*/venv/
 fara-main/
-gta-1/test_files/
+**/venv/
+**/__pycache__/
+*.pyc
+tools/test_files/

@@ -1,0 +1,40 @@
+# Autoscaling rule:
+#   desired_pods = ceil(sum(gta1_inflight_requests) / threshold)
+# With threshold=2 (= measured comfort N), 6 inflight across the fleet → 3 Pods.
+# Capped at maxReplicaCount=3 by the GPU quota.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: gta1-vllm
+  namespace: gta1
+spec:
+  scaleTargetRef:
+    name: gta1-vllm
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  pollingInterval: 10           # check metrics every 10s — saturation is steep
+  cooldownPeriod: 300           # wait 5 min idle before scaling down (GPUs are pricey)
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 30   # add 1 Pod every 30s while overloaded
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+          - type: Pods
+            value: 1
+            periodSeconds: 300  # remove at most 1 Pod every 5 min
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
+      query: sum(gta1_inflight_requests)
+      threshold: "2"
+      # If the metric is missing (e.g. all Pods just started, GMP hasn't scraped yet),
+      # treat it as 0 inflight rather than erroring the scaler.
+      ignoreNullValues: "true"

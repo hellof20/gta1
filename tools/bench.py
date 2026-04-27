@@ -2,8 +2,8 @@
 Concurrency benchmark for the /process/ endpoint.
 
 Usage:
-    python concurrent_test.py step.png "pc download button" -c 8 -n 32
-    python concurrent_test.py step.png "pc download button" -c 16 -n 64 --warmup 2
+    python concurrent_test.py test_files/step.png "pc download button" -c 8 -n 32
+    python concurrent_test.py test_files/step.png "pc download button" -c 16 -n 64 --warmup 2
 
 Note:
     - Sends the same image+prompt for every request, so vLLM's prefix cache will

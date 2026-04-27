@@ -1,0 +1,25 @@
+FROM vllm/vllm-openai:v0.19.1
+
+WORKDIR /app
+
+# vllm/vllm-openai already ships vllm, torch, transformers, fastapi, uvicorn, Pillow.
+# Only add what the wrapper itself needs on top:
+#   - python-multipart: FastAPI multipart/form-data parsing for the upload endpoint
+#   - qwen-vl-utils:    smart_resize() used to compute target dims for coord scaling
+RUN pip install --no-cache-dir python-multipart qwen-vl-utils==0.0.14 prometheus-client
+
+COPY api_vllm.py ./
+
+# Model is mounted at runtime, e.g.
+#   docker run -v /host/models/GTA1-7B:/models/GTA1-7B ...
+ENV MODEL_PATH=/models/GTA1-7B
+VOLUME ["/models"]
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=20 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')" || exit 1
+
+# Base image's ENTRYPOINT is `vllm serve`; clear it so our CMD runs uvicorn instead.
+ENTRYPOINT []
+CMD ["python3", "api_vllm.py"]

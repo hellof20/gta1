@@ -60,7 +60,8 @@ processor = AutoProcessor.from_pretrained(
     MODEL_PATH,
     min_pixels=3136,
     # max_pixels=1024 * 576,
-    max_pixels=1280 * 720,
+    # max_pixels=1280 * 720,
+    max_pixels= 3840 * 2160,
     local_files_only=True,
 )
 

@@ -72,8 +72,8 @@ def annotate(image_path, x, y, instruction, elapsed):
 
 
 if __name__ == "__main__":
-    image_path = sys.argv[1] if len(sys.argv) > 1 else "4.png"
-    instruction = sys.argv[2] if len(sys.argv) > 2 else "the search button"
+    image_path = sys.argv[1] if len(sys.argv) > 1 else "test_files/4.png"
+    instruction = sys.argv[2] if len(sys.argv) > 2 else "寻梦之旅"
 
     print(f"Testing with image={image_path}, instruction='{instruction}'")
     test_health()

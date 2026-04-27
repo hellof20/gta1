@@ -1,0 +1,35 @@
+steps:
+# Pull previous image as build cache (ignore failure on first build)
+- name: 'gcr.io/cloud-builders/docker'
+  entrypoint: 'bash'
+  args: ['-c', 'docker pull ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1-vllm:latest || exit 0']
+
+# Build gta1 Docker image
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'build',
+    '-f', 'Dockerfile.vllm',
+    '--cache-from', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1-vllm:latest',
+    '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1-vllm:${_VERSION}',
+    '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1-vllm:latest',
+    '.'
+  ]
+
+# Push image to Artifact Registry
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'push',
+    '--all-tags',
+    '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1-vllm'
+  ]
+
+substitutions:
+  _VERSION: '0.1'
+  _REGION: 'us-central1'
+  _REPOSITORY: 'myrepo'
+
+options:
+  machineType: 'E2_HIGHCPU_32'
+  diskSizeGb: 100
+
+timeout: '1800s'
