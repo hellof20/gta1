@@ -1,3 +1,5 @@
+python3 tools/bench.py tools/test_files/mail.jpg "chat button" -n 32 --sweep
+
 GTA-1 L4:
 === SWEEP SUMMARY ===
 concurrency  wall(s)  qps   p50(s)  p95(s)  p99(s)

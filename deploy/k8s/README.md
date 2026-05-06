@@ -146,7 +146,24 @@ kubectl apply -f deploy/k8s/30-scaledobject.yaml
 kubectl apply -f deploy/k8s/40-pdb.yaml
 ```
 
-## 9. Verify
+## 9. Install Grafana (vLLM Dashboard)
+
+```bash
+kubectl apply -f deploy/k8s/50-grafana-dashboard.yaml
+kubectl apply -f deploy/k8s/51-grafana.yaml
+```
+
+Access via port-forward:
+
+```bash
+kubectl -n gta1 port-forward svc/grafana 3000:3000
+```
+
+Open `http://localhost:3000` and log in with `admin` / `admin`. The vLLM Dashboard is auto-loaded as the home page.
+
+> If your Prometheus address differs from `prometheus-kube-prometheus-prometheus.monitoring:9090`, update the `grafana-datasource` ConfigMap in `51-grafana.yaml`.
+
+## 10. Verify
 
 ```bash
 # Pod is running and ready
@@ -162,10 +179,10 @@ kubectl -n gta1 get hpa            # KEDA creates an HPA under the hood
 # Test the endpoint
 kubectl -n gta1 port-forward svc/gta1-vllm 8000:8000
 curl http://localhost:8000/ready
-curl http://localhost:8000/metrics | grep gta1_inflight
+curl http://localhost:8000/metrics/ | grep gta1_inflight
 ```
 
-## 10. Expose externally (optional)
+## 11. Expose externally (optional)
 
 For a quick internal LB:
 
@@ -182,5 +199,5 @@ For production HTTP(S) ingress, use GKE Gateway API.
 - **Cold start**: First Pod takes ~2–4 min (node provisioning if cold + vLLM model load from GCS). `readinessProbe.failureThreshold=30` allows 5 min before marking failed.
 - **Scale-up latency**: When KEDA wants a 2nd Pod, GKE cluster autoscaler must spin up a 2nd L4 node (~3 min) before the Pod can schedule.
 - **Cost**: L4 g2-standard-8 ≈ $0.70/hr × 1 always-on Pod ≈ $500/mo baseline. Each additional Pod ≈ $500/mo while running.
-- **Scale signal**: `gta1_inflight_requests` (app-level counter). vLLM's own metrics (`vllm:num_requests_running/waiting`) are also exposed at `/metrics` if you prefer those.
+- **Scale signal**: `gta1_inflight_requests` (app-level counter). vLLM's own metrics (`vllm:num_requests_running/waiting`) are also exposed at `/metrics/` if you prefer those.
 - **503 behavior**: When a Pod hits `INFLIGHT_LIMIT=4` it returns 503 with `Retry-After: 2`. Configure your client (or LB) to retry on a different backend.

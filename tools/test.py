@@ -1,24 +1,22 @@
+import argparse
 import os
-import sys
 import time
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
-BASE_URL = "http://localhost:8000"
 
-
-def test_health():
-    resp = requests.get(f"{BASE_URL}/")
+def test_health(base_url):
+    resp = requests.get(f"{base_url}/")
     print(f"[Health Check] status={resp.status_code} body={resp.json()}")
     assert resp.status_code == 200
 
 
-def test_process(image_path, instruction):
+def test_process(base_url, image_path, instruction):
     with open(image_path, "rb") as f:
         start = time.time()
         resp = requests.post(
-            f"{BASE_URL}/process/",
+            f"{base_url}/process/",
             data={"instruction": instruction},
             files={"image_file": (image_path, f, "image/png")},
         )
@@ -30,7 +28,7 @@ def test_process(image_path, instruction):
     return result["x"], result["y"], elapsed
 
 
-def annotate(image_path, x, y, instruction, elapsed):
+def annotate(image_path, x, y, instruction, elapsed, output_dir=None):
     img = Image.open(image_path).convert("RGB")
     draw = ImageDraw.Draw(img)
 
@@ -64,19 +62,29 @@ def annotate(image_path, x, y, instruction, elapsed):
     draw.rectangle((bbox[0] - 4, bbox[1] - 2, bbox[2] + 4, bbox[3] + 2), fill="black")
     draw.text((tx, ty), label, fill="white", font=font)
 
-    base, ext = os.path.splitext(image_path)
+    basename = os.path.basename(image_path)
+    name, ext = os.path.splitext(basename)
     safe_inst = "".join(c if c.isalnum() else "_" for c in instruction)[:40]
-    out_path = f"{base}__{safe_inst}_marked{ext}"
+    out_name = f"{name}__{safe_inst}_marked{ext}"
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        out_path = os.path.join(output_dir, out_name)
+    else:
+        out_path = os.path.join(os.path.dirname(image_path), out_name)
     img.save(out_path)
     print(f"[Annotated] saved to {out_path}")
 
 
 if __name__ == "__main__":
-    image_path = sys.argv[1] if len(sys.argv) > 1 else "test_files/4.png"
-    instruction = sys.argv[2] if len(sys.argv) > 2 else "寻梦之旅"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("image", nargs="?", default="test_files/4.png")
+    parser.add_argument("instruction", nargs="?", default="寻梦之旅")
+    parser.add_argument("--url", default="http://localhost:8000")
+    parser.add_argument("--output-dir", default=None)
+    args = parser.parse_args()
 
-    print(f"Testing with image={image_path}, instruction='{instruction}'")
-    test_health()
-    x, y, elapsed = test_process(image_path, instruction)
-    annotate(image_path, x, y, instruction, elapsed)
+    print(f"Testing with url={args.url}, image={args.image}, instruction='{args.instruction}'")
+    test_health(args.url)
+    x, y, elapsed = test_process(args.url, args.image, args.instruction)
+    annotate(args.image, x, y, args.instruction, elapsed, args.output_dir)
     print("All tests passed.")

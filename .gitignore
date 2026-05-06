@@ -6,3 +6,5 @@ fara-main/
 **/__pycache__/
 *.pyc
 tools/test_files/
+results/
+vllm/

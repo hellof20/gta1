@@ -95,6 +95,39 @@ def run_burst(image_bytes, image_name, instruction, concurrency, total, label=""
     return wall, n_ok / wall if wall > 0 else 0, latencies
 
 
+def run_rate(image_bytes, image_name, instruction, rps, duration):
+    total = int(duration * rps)
+    print(f"\n=== RATE  rps={rps}  duration={duration}s  total={total} ===")
+    t0 = time.perf_counter()
+    latencies = []
+    statuses = []
+    results = []
+    with ThreadPoolExecutor(max_workers=total) as ex:
+        futures = []
+        for i in range(total):
+            futures.append(ex.submit(one_request, image_bytes, image_name, instruction))
+            if i < total - 1:
+                time.sleep(1.0 / rps)
+        for fut in as_completed(futures):
+            elapsed, status, result = fut.result()
+            latencies.append(elapsed)
+            statuses.append(status)
+            results.append(result)
+    wall = time.perf_counter() - t0
+
+    n_ok = sum(1 for s in statuses if s == 200)
+    n_busy = sum(1 for s in statuses if s == 503)
+    n_err = sum(1 for s in statuses if s not in (200, 503))
+
+    latencies.sort()
+    print(f"Wall time:   {wall:.2f}s")
+    print(f"Throughput:  {n_ok/wall:.2f} req/s   ({n_ok} ok / {n_busy} 503 / {n_err} err)")
+    print(f"Latency (s): min={min(latencies):.3f}  p50={percentile(latencies, 50):.3f}  "
+          f"p90={percentile(latencies, 90):.3f}  p95={percentile(latencies, 95):.3f}  "
+          f"p99={percentile(latencies, 99):.3f}  max={max(latencies):.3f}  "
+          f"mean={statistics.mean(latencies):.3f}")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("image")
@@ -105,6 +138,10 @@ def main():
                    help="warmup requests before measurement (default 2)")
     p.add_argument("--sweep", action="store_true",
                    help="run a sweep across concurrency=[1,2,4,8,16] with --total each")
+    p.add_argument("--rate", type=float, default=None,
+                   help="constant rate mode: requests per second (e.g. 0.5)")
+    p.add_argument("--duration", type=int, default=60,
+                   help="duration in seconds for --rate mode (default 60)")
     args = p.parse_args()
 
     with open(args.image, "rb") as f:
@@ -131,7 +168,9 @@ def main():
             one_request(image_bytes, image_name, args.instruction)
             print(f"  warmup {i+1}: {(time.perf_counter()-t)*1000:.0f} ms")
 
-    if args.sweep:
+    if args.rate:
+        run_rate(image_bytes, image_name, args.instruction, args.rate, args.duration)
+    elif args.sweep:
         print("\n=== SWEEP ===")
         rows = [["concurrency", "wall(s)", "qps", "p50(s)", "p95(s)", "p99(s)"]]
         for c in [1, 2, 4, 8, 16]:

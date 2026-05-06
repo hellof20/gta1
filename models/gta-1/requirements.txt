@@ -7,3 +7,5 @@ fastapi
 uvicorn[standard]
 python-multipart
 huggingface_hub
+prometheus_client==0.25.0
+vllm==0.19.1

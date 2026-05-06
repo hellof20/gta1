@@ -49,7 +49,7 @@ MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(3840 * 2160)))
 MIN_PIXELS = int(os.environ.get("MIN_PIXELS", "3136"))
 MAX_MODEL_LEN = int(os.environ.get("MAX_MODEL_LEN", "12288"))
 GPU_MEM_UTIL = float(os.environ.get("GPU_MEM_UTIL", "0.85"))
-# Hard cap on concurrent /process requests; above this we 503.
+# Hard cap on concurrent /process requests; above this we 429.
 # Based on our load test, p99 stays acceptable up to ~N=2; cap to N*2 to absorb bursts.
 INFLIGHT_LIMIT = int(os.environ.get("INFLIGHT_LIMIT", "4"))
 ENABLE_PREFIX_CACHE = os.environ.get("ENABLE_PREFIX_CACHE", "1").lower() in ("1", "true", "yes", "on")
@@ -134,9 +134,9 @@ async def limit_inflight(request: Request, call_next):
     if _inflight >= INFLIGHT_LIMIT:
         REJECTED.inc()
         return JSONResponse(
-            status_code=503,
+            status_code=429,
             headers={"Retry-After": "2"},
-            content={"error": "overloaded, retry later"},
+            content={"error": "too many requests, retry later"},
         )
     _inflight += 1
     INFLIGHT.set(_inflight)
