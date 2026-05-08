@@ -1534,7 +1534,3 @@ data:
       "version": 8,
       "weekStart": ""
     }
-kind: ConfigMap
-metadata:
-  name: grafana-vllm-dashboard
-  namespace: gta1

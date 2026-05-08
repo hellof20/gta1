@@ -2,8 +2,8 @@ from huggingface_hub import snapshot_download
 import os
 import sys
 
-# MODEL_ID = "HelloKKMe/GTA1-7B"
-MODEL_ID = "tencent/POINTS-GUI-G"
+MODEL_ID = "HelloKKMe/GTA1-7B"
+# MODEL_ID = "tencent/POINTS-GUI-G"
 
 def main():
     try:

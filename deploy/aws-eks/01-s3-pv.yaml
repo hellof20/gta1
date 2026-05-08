@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gta1-model-s3
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadOnlyMany
+  mountOptions:
+    - --read-only
+  csi:
+    driver: s3.csi.aws.com
+    volumeHandle: s3-pwmmodel
+    volumeAttributes:
+      bucketName: pwmmodel
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gta1-model-pvc
+  namespace: gta1
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 100Gi
+  volumeName: gta1-model-s3

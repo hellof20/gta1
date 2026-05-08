@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gta1-vllm
+  namespace: gta1
+  labels:
+    app: gta1-vllm
+spec:
+  selector:
+    matchLabels:
+      app: gta1-vllm
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: gta1-vllm
+    spec:
+      terminationGracePeriodSeconds: 60
+      nodeSelector:
+        node.kubernetes.io/instance-type: g5.xlarge
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: vllm
+        image: 527432981953.dkr.ecr.us-east-1.amazonaws.com/qira/gta1-vllm:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+        env:
+        - name: MODEL_PATH
+          value: /models/GTA1-7B
+        - name: INFLIGHT_LIMIT
+          value: "4"
+        - name: GPU_MEM_UTIL
+          value: "0.85"
+        - name: MAX_MODEL_LEN
+          value: "12288"
+        - name: VLLM_WORKER_MULTIPROC_METHOD
+          value: spawn
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+            nvidia.com/gpu: 1
+          limits:
+            cpu: "4"
+            memory: 14Gi
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: model
+          mountPath: /models
+          readOnly: true
+        - name: dshm
+          mountPath: /dev/shm
+        readinessProbe:
+          httpGet: { path: /ready, port: http }
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        startupProbe:
+          httpGet: { path: /ready, port: http }
+          periodSeconds: 10
+          failureThreshold: 60
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sleep", "5"]
+      volumes:
+      - name: model
+        persistentVolumeClaim:
+          claimName: gta1-model-pvc
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 4Gi

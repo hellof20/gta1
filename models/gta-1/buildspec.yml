@@ -1,0 +1,29 @@
+version: 0.2
+
+env:
+  variables:
+    ECR_REPOSITORY: qira/gta1-vllm
+    IMAGE_TAG: "0.1"
+
+phases:
+  pre_build:
+    commands:
+      - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - ECR_REGISTRY=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+      - aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+      - docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest || true
+
+  build:
+    commands:
+      - >-
+        docker build
+        -f Dockerfile.vllm
+        --cache-from ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+        -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+        -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+        .
+
+  post_build:
+    commands:
+      - docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+      - docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest

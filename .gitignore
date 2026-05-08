@@ -8,3 +8,4 @@ fara-main/
 tools/test_files/
 results/
 vllm/
+tpu/
