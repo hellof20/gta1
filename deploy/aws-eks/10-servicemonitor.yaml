@@ -5,6 +5,7 @@ metadata:
   namespace: gta1
   labels:
     app: gta1-vllm
+    release: prometheus
 spec:
   selector:
     matchLabels:

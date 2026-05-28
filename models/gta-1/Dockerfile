@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3.10-dev \
     gcc \
+    libc6-dev \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
@@ -23,9 +24,13 @@ RUN pip3 install --no-cache-dir torch==2.8.0 torchvision==0.23.0 --index-url htt
         qwen-vl-utils==0.0.14 \
         fastapi \
         uvicorn[standard] \
-        python-multipart && \
+        python-multipart \
+        huggingface_hub && \
     pip3 install --no-cache-dir \
         https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+
+ARG HF_TOKEN
+RUN HF_TOKEN=${HF_TOKEN} python3 -c "from huggingface_hub import snapshot_download; snapshot_download('HelloKKMe/GTA1-7B')"
 
 COPY api.py ./
 

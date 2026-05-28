@@ -1,10 +1,10 @@
 # 构建镜像和打包到镜像仓库
-gcloud builds submit --project speedy-victory-336109 --config=cloudbuild.yaml --substitutions=_VERSION="0.12"
+gcloud builds submit --project pwmtest1 --config=cloudbuild.yaml --substitutions=_VERSION="0.12"
 
 # 部署gta-1到cloud run
 gcloud run deploy gta1 \
-  --image asia-southeast1-docker.pkg.dev/speedy-victory-336109/myrepo/gta1:0.12 \
-  --region asia-southeast1 \
+  --image us-central1-docker.pkg.dev/pwmtest1/myrepo/gta1:0.2.3 \
+  --region us-central1 \
   --platform managed \
   --gpu 1 \
   --gpu-type nvidia-l4 \
@@ -12,8 +12,8 @@ gcloud run deploy gta1 \
   --cpu 4 \
   --memory 16Gi \
   --port 8000 \
-  --min 0 \
-  --max 3 \
+  --min 1 \
+  --max 1 \
   --timeout 120 \
   --concurrency 1 \
   --cpu-boost \
@@ -22,8 +22,8 @@ gcloud run deploy gta1 \
 
 # 部署mai-ui到cloud run
 gcloud run deploy mai-ui \
-  --image asia-southeast1-docker.pkg.dev/speedy-victory-336109/myrepo/mai-ui:0.1 \
-  --region asia-southeast1 \
+  --image us-central1-docker.pkg.dev/pwmtest1/myrepo/mai-ui:0.1 \
+  --region us-central1 \
   --platform managed \
   --gpu 1 \
   --gpu-type nvidia-l4 \
@@ -39,7 +39,7 @@ gcloud run deploy mai-ui \
   --allow-unauthenticated
 
 gcloud beta run deploy gta1-rtx6000 \
-  --image asia-southeast1-docker.pkg.dev/speedy-victory-336109/myrepo/gta1:0.12 \
+  --image us-central1-docker.pkg.dev/pwmtest1/myrepo/gta1:0.12 \
   --region us-central1 \
   --platform managed \
   --gpu 1 \

@@ -1,0 +1,42 @@
+steps:
+# Pull previous image as build cache (ignore failure on first build)
+- name: 'gcr.io/cloud-builders/docker'
+  entrypoint: 'bash'
+  args: ['-c', 'docker pull ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1:latest || exit 0']
+
+# Build gta1 Docker image
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'build',
+    '-f', 'Dockerfile',
+    '--build-arg', 'HF_TOKEN=$$HF_TOKEN',
+    '--cache-from', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1:latest',
+    '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1:${_VERSION}',
+    '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1:latest',
+    '.'
+  ]
+  secretEnv: ['HF_TOKEN']
+
+# Push image to Artifact Registry
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'push',
+    '--all-tags',
+    '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/gta1'
+  ]
+
+substitutions:
+  _VERSION: '0.1'
+  _REGION: 'us-central1'
+  _REPOSITORY: 'myrepo'
+
+availableSecrets:
+  secretManager:
+  - versionName: projects/$PROJECT_ID/secrets/HF_TOKEN/versions/latest
+    env: 'HF_TOKEN'
+
+options:
+  machineType: 'E2_HIGHCPU_32'
+  diskSizeGb: 100
+
+timeout: '1800s'
