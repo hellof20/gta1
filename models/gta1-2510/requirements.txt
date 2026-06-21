@@ -1,0 +1,17 @@
+# The GTA1-7B tokenizer is OpenCUA's tiktoken tokenizer (trust_remote_code).
+# OpenCUA official pins transformers==4.53.0, but vllm 0.19.1 requires >=4.56.0,
+# so we use 4.56.0 — the lowest version vllm allows and closest to official 4.53,
+# still in the 4.x line (5.x breaks OpenCUA's remote tokenizer code).
+transformers==4.56.0
+tiktoken==0.11.0
+blobfile==3.0.0
+accelerate==1.10.0
+Pillow==11.3.0
+# Serving
+qwen-vl-utils==0.0.14
+fastapi
+uvicorn[standard]
+python-multipart
+huggingface_hub
+prometheus_client==0.25.0
+vllm==0.19.1

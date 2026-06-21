@@ -1,0 +1,38 @@
+FROM vllm/vllm-openai:v0.19.1
+
+WORKDIR /app
+
+# Base image already ships vllm 0.19.1, torch, fastapi, uvicorn, Pillow — BUT its
+# transformers is 5.x, which breaks OpenCUA's remote tokenizer code. Pin transformers
+# to 4.56.0: the lowest version vllm 0.19.1 accepts (it requires >=4.56.0) and close
+# to OpenCUA's official 4.53.0. (api_vllm.py also carries shims for the residual
+# 4.56 quirks: processor tokenizer-class check + PILImageResampling annotation.)
+# Other additions on top of the base image:
+#   - python-multipart:  multipart/form-data parsing for the upload endpoint
+#   - qwen-vl-utils:     smart_resize() used to compute target dims for coord scaling
+#   - prometheus-client: /metrics endpoint
+#   - tiktoken, blobfile: OpenCUA's slow tokenizer (qwen.tiktoken / tiktoken.model)
+RUN pip install --no-cache-dir \
+    "transformers==4.56.0" \
+    tiktoken==0.11.0 \
+    blobfile==3.0.0 \
+    qwen-vl-utils==0.0.14 \
+    prometheus-client \
+    python-multipart
+
+COPY api_vllm.py ./
+
+# Mount the NEW Salesforce/GTA1-7B (OpenCUA) snapshot here at runtime, e.g.
+#   docker run -v /host/models/GTA1-7B-new:/models/GTA1-7B ...
+# The model dir must include the custom *_opencua.py files (loaded via trust_remote_code).
+ENV MODEL_PATH=/models/GTA1-7B
+VOLUME ["/models"]
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=20 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')" || exit 1
+
+# Base image's ENTRYPOINT is `vllm serve`; clear it so our CMD runs uvicorn instead.
+ENTRYPOINT []
+CMD ["python3", "api_vllm.py"]
